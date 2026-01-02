@@ -63,5 +63,5 @@ class CustomAuthToken(ObtainAuthToken):
             'token': token.key,
             'user_id': user.pk,
             'message': 'Login successful',
-            'success': True
-        })
+            'success': True,
+        }, status=status.HTTP_201_CREATED)
