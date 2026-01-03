@@ -4,7 +4,7 @@ from .models import Post, Like, Comment
 from .serializers import PostSerializer, CommentSerializer
 from .permissions import IsAuthorOrReadOnly
 from rest_framework.pagination import PageNumberPagination
-from django.db.models import Count
+from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404
 from datetime import datetime, timedelta
 
@@ -45,7 +45,7 @@ class FeedView(generics.ListAPIView):
 
     def get_queryset(self):
         following_users = self.request.user.following.all()
-        queryset = Post.objects.filter(author__in=following_users)
+        queryset = Post.objects.filter(Q(author__in=following_users) | Q(author=self.request.user))
         
         
         start_date = self.request.query_params.get('start_date', None)
