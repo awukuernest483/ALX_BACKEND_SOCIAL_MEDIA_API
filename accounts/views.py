@@ -2,7 +2,8 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
-from django.contrib.auth import get_user_model
+from django.contrib.auth import get_user_model, authenticate
+from rest_framework.authtoken.models import Token
 from .serializers import UserSerializer
 
 class IsUserOrReadOnly(permissions.BasePermission):
@@ -23,10 +24,16 @@ class UserListView(generics.ListAPIView):
     serializer_class = UserSerializer
     permission_classes = [permissions.IsAuthenticated]
 
-class UserDetailView(generics.RetrieveUpdateAPIView):
+from drf_yasg.utils import swagger_auto_schema
+
+class UserDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = User.objects.all()
     serializer_class = UserSerializer
     permission_classes = [permissions.IsAuthenticated, IsUserOrReadOnly]
+
+    @swagger_auto_schema(operation_description="Delete a user account")
+    def destroy(self, request, *args, **kwargs):
+        return super().destroy(request, *args, **kwargs)
 
 class FollowUserView(generics.GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -50,18 +57,33 @@ class UnfollowUserView(generics.GenericAPIView):
         return Response({"message": f"You have unfollowed {user_to_unfollow.username}"}, status=status.HTTP_200_OK)
 
 from rest_framework.authtoken.views import ObtainAuthToken
-from rest_framework.authtoken.models import Token
 
 class CustomAuthToken(ObtainAuthToken):
     def post(self, request, *args, **kwargs):
-        serializer = self.serializer_class(data=request.data,
-                                           context={'request': request})
-        serializer.is_valid(raise_exception=True)
-        user = serializer.validated_data['user']
-        token, created = Token.objects.get_or_create(user=user)
-        return Response({
-            'token': token.key,
-            'user_id': user.pk,
-            'message': 'Login successful',
-            'success': True,
-        }, status=status.HTTP_201_CREATED)
+        try:
+            serializer = self.serializer_class(data=request.data,
+                                               context={'request': request})
+            if not serializer.is_valid():
+                return Response({
+                    'message': 'Wrong credentials.',
+                    'success': False,
+                    'errors': serializer.errors,
+                    'errorcode': status.HTTP_400_BAD_REQUEST
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            user = serializer.validated_data['user']
+            token, created = Token.objects.get_or_create(user=user)
+            return Response({
+                'token': token.key,
+                'user_id': user.pk,
+                'message': 'Login successful',
+                'success': True,
+            }, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            error_code = getattr(e, 'status_code', status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({
+                'message': 'An unexpected error occurred.',
+                'success': False,
+                'details': str(e),
+                'errorcode': error_code
+            }, status=error_code)

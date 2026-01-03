@@ -1,11 +1,12 @@
 from rest_framework import viewsets, permissions, filters, generics, status
 from rest_framework.response import Response
-from .models import Post, Like
-from .serializers import PostSerializer
+from .models import Post, Like, Comment
+from .serializers import PostSerializer, CommentSerializer
 from .permissions import IsAuthorOrReadOnly
 from rest_framework.pagination import PageNumberPagination
 from django.db.models import Count
 from django.shortcuts import get_object_or_404
+from datetime import datetime, timedelta
 
 class StandardResultsSetPagination(PageNumberPagination):
     page_size = 10
@@ -34,7 +35,29 @@ class FeedView(generics.ListAPIView):
 
     def get_queryset(self):
         following_users = self.request.user.following.all()
-        return Post.objects.filter(author__in=following_users).order_by('-created_at')
+        queryset = Post.objects.filter(author__in=following_users)
+        
+        
+        start_date = self.request.query_params.get('start_date', None)
+        end_date = self.request.query_params.get('end_date', None)
+        
+        if start_date:
+            try:
+                start_date = datetime.strptime(start_date, '%Y-%m-%d').date()
+                queryset = queryset.filter(created_at__gte=start_date)
+            except ValueError:
+                pass 
+        
+        if end_date:
+            try:
+                end_date = datetime.strptime(end_date, '%Y-%m-%d').date()
+               
+                end_date = end_date + timedelta(days=1)
+                queryset = queryset.filter(created_at__lt=end_date)
+            except ValueError:
+                pass  
+        
+        return queryset.order_by('-created_at')
 
 class LikePostView(generics.GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -51,3 +74,18 @@ class UnlikePostView(generics.GenericAPIView):
         post = get_object_or_404(Post, pk=pk)
         Like.objects.filter(user=request.user, post=post).delete()
         return Response({"message": "Post unliked"}, status=status.HTTP_200_OK)
+
+class CommentViewSet(viewsets.ModelViewSet):
+    serializer_class = CommentSerializer
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly, IsAuthorOrReadOnly]
+    pagination_class = StandardResultsSetPagination
+
+    def get_queryset(self):
+        queryset = Comment.objects.all()
+        post_id = self.request.query_params.get('post', None)
+        if post_id is not None:
+            queryset = queryset.filter(post_id=post_id)
+        return queryset.order_by('-created_at')
+
+    def perform_create(self, serializer):
+        serializer.save(author=self.request.user)
